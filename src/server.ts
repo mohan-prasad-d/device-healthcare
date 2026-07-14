@@ -1,11 +1,80 @@
 import "./lib/error-capture";
 
+import os from "os";
+import si from "systeminformation";
 import { consumeLastCapturedError } from "./lib/error-capture";
 import { renderErrorPage } from "./lib/error-page";
 
 type ServerEntry = {
   fetch: (request: Request, env: unknown, ctx: unknown) => Promise<Response> | Response;
 };
+
+type NetworkState = {
+  rxBytes: number;
+  txBytes: number;
+  timestamp: number;
+};
+
+const lastNetworkStats: Record<string, NetworkState> = {};
+
+async function getOsMetrics() {
+  const totalMem = os.totalmem();
+  const freeMem = os.freemem();
+  const usedMem = totalMem - freeMem;
+  const cpus = os.cpus();
+  const load = await si.currentLoad();
+  const netStats = await si.networkStats();
+
+  const network = await si.networkInterfaces();
+  const networkInterfaces = network.map((iface) => ({
+    name: iface.iface,
+    addresses: iface.ip4 ? [{ address: iface.ip4, family: "IPv4", mac: iface.mac, internal: iface.internal }] : [],
+  }));
+
+  const throughput = netStats.map((stat) => {
+    const previous = lastNetworkStats[stat.iface];
+    const now = Date.now();
+    const duration = previous ? (now - previous.timestamp) / 1000 : 1;
+    const rx = previous ? (stat.rx_bytes - previous.rxBytes) / duration : 0;
+    const tx = previous ? (stat.tx_bytes - previous.txBytes) / duration : 0;
+
+    lastNetworkStats[stat.iface] = {
+      rxBytes: stat.rx_bytes,
+      txBytes: stat.tx_bytes,
+      timestamp: now,
+    };
+
+    return {
+      iface: stat.iface,
+      rxKb: rx / 1024,
+      txKb: tx / 1024,
+    };
+  });
+
+  return {
+    hostname: os.hostname(),
+    type: os.type(),
+    platform: os.platform(),
+    release: os.release(),
+    arch: os.arch(),
+    uptime: os.uptime(),
+    memory: {
+      total: totalMem,
+      free: freeMem,
+      used: usedMem,
+      usedPercent: totalMem > 0 ? (usedMem / totalMem) * 100 : 0,
+    },
+    cpu: {
+      cores: cpus.length,
+      model: cpus[0]?.model ?? "Unknown",
+      speed: cpus[0]?.speed ?? 0,
+      loadAverage: os.loadavg(),
+      usagePercent: load.currentLoad,
+    },
+    network: networkInterfaces,
+    throughput,
+  };
+}
 
 let serverEntryPromise: Promise<ServerEntry> | undefined;
 
@@ -47,6 +116,17 @@ function isH3SwallowedErrorBody(body: string): boolean {
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
     try {
+      const url = new URL(request.url);
+      if (url.pathname === "/api/os" && request.method === "GET") {
+        return new Response(JSON.stringify(await getOsMetrics()), {
+          status: 200,
+          headers: {
+            "content-type": "application/json; charset=utf-8",
+            "cache-control": "no-store",
+          },
+        });
+      }
+
       const handler = await getServerEntry();
       const response = await handler.fetch(request, env, ctx);
       return await normalizeCatastrophicSsrResponse(response);
