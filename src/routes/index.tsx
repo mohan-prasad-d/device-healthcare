@@ -136,8 +136,7 @@ function Index() {
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["osMetrics"],
     queryFn: fetchOsMetrics,
-    enabled: isLocalHost,
-    refetchInterval: isLocalHost ? 2000 : false,
+    refetchInterval: 2000,
     staleTime: 1000,
   });
 
@@ -171,7 +170,7 @@ function Index() {
     return `${hrs}h ${mins}m ${secs}s`;
   };
 
-  const liveData = isLocalHost ? data : browserMetrics;
+  const liveData = data || browserMetrics;
   const totalThroughput = useMemo(
     () => liveData?.throughput.reduce((sum, item) => sum + item.rxKb + item.txKb, 0) ?? 0,
     [liveData],
@@ -198,7 +197,7 @@ function Index() {
               <p className="mt-2 text-xs text-slate-500 sm:text-sm">
                 {isLocalHost
                   ? "This view is reading the local machine metrics from the app runtime."
-                  : "This deployed page is reading browser/device information from your current device rather than the Vercel server runtime."}
+                  : "This view is reading the serverless function metrics from the Vercel runtime."}
               </p>
             </div>
             <button
