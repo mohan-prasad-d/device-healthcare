@@ -28,7 +28,10 @@ async function getOsMetrics() {
   const network = await si.networkInterfaces();
   const networkInterfaces = network.map((iface) => ({
     name: iface.iface,
-    addresses: iface.ip4 ? [{ address: iface.ip4, family: "IPv4", mac: iface.mac, internal: iface.internal }] : [],
+    addresses: [
+      ...(iface.ip4 ? [{ address: iface.ip4, family: "IPv4", mac: iface.mac, internal: iface.internal }] : []),
+      ...(iface.ip6 ? [{ address: iface.ip6, family: "IPv6", mac: iface.mac, internal: iface.internal }] : []),
+    ],
   }));
 
   const throughput = netStats.map((stat) => {
@@ -58,6 +61,17 @@ async function getOsMetrics() {
     release: os.release(),
     arch: os.arch(),
     uptime: os.uptime(),
+    totalCores: cpus.length,
+    cpuModel: cpus[0]?.model ?? "Unknown",
+    cpuSpeed: cpus[0]?.speed ?? 0,
+    cpuLoadAverage: os.loadavg(),
+    memoryAvailable: freeMem,
+    memoryUsed: usedMem,
+    memoryTotal: totalMem,
+    memoryUsedPercent: totalMem > 0 ? (usedMem / totalMem) * 100 : 0,
+    loadCurrent: load.currentLoad,
+    networkInterfaces,
+    throughput,
     memory: {
       total: totalMem,
       free: freeMem,

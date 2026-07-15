@@ -131,7 +131,7 @@ function Index() {
                 <MetricCard
                   title="RAM Usage"
                   value={isLoading ? "--" : `${data?.memory.usedPercent.toFixed(1)} %`}
-                  detail={isLoading ? "Loading..." : `${formatBytes(data?.memory.used ?? 0)} / ${formatBytes(data?.memory.total ?? 0)}`}
+                  detail={isLoading ? "Loading..." : `${formatBytes(data?.memory.used ?? 0)} used of ${formatBytes(data?.memory.total ?? 0)}`}
                   warning={memWarning}
                 />
                 <MetricCard
@@ -170,9 +170,12 @@ function Index() {
               <div className="rounded-3xl border border-slate-800 bg-slate-950/80 p-6">
                 <h2 className="text-lg font-semibold">Live status</h2>
                 <div className="mt-4 space-y-4 text-sm text-slate-300">
+                  <StatusRow name="Host" value={isLoading ? "--" : data?.hostname ?? "--"} />
                   <StatusRow name="OS" value={isLoading ? "--" : data?.platform ?? "--"} />
                   <StatusRow name="Release" value={isLoading ? "--" : data?.release ?? "--"} />
                   <StatusRow name="Arch" value={isLoading ? "--" : data?.arch ?? "--"} />
+                  <StatusRow name="CPU" value={isLoading ? "--" : `${data?.cpu.cores ?? 0} cores • ${data?.cpu.speed ?? 0} MHz`} />
+                  <StatusRow name="Memory" value={isLoading ? "--" : `${formatBytes(data?.memory.used ?? 0)} / ${formatBytes(data?.memory.total ?? 0)}`} />
                   <StatusRow name="Throughput" value={isLoading ? "--" : `${totalThroughput.toFixed(1)} KB/s`} />
                 </div>
               </div>
