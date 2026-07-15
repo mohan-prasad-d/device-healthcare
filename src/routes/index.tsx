@@ -44,6 +44,76 @@ type OsMetric = {
 
 type StatPoint = { time: string; value: number };
 
+function getBrowserMetrics(): OsMetric {
+  const connection = (navigator as Navigator & {
+    connection?: {
+      effectiveType?: string;
+      downlink?: number;
+      rtt?: number;
+      saveData?: boolean;
+    };
+  }).connection;
+
+  const performanceMemory = (performance as Performance & {
+    memory?: {
+      usedJSHeapSize?: number;
+      totalJSHeapSize?: number;
+    };
+  }).memory;
+
+  const totalHeap = performanceMemory?.totalJSHeapSize ?? 0;
+  const usedHeap = performanceMemory?.usedJSHeapSize ?? 0;
+  const usedPercent = totalHeap > 0 ? (usedHeap / totalHeap) * 100 : 0;
+
+  const ua = navigator.userAgent;
+  let platform = "Unknown";
+  if (/Windows/i.test(ua)) platform = "Windows";
+  else if (/Mac OS/i.test(ua)) platform = "macOS";
+  else if (/Linux/i.test(ua)) platform = "Linux";
+  else if (/Android/i.test(ua)) platform = "Android";
+  else if (/iPhone|iPad|iPod/i.test(ua)) platform = "iOS";
+
+  const browserPlatform = navigator.platform || "Unknown";
+  const browserCpuCount = navigator.hardwareConcurrency || 1;
+  const browserMemoryGb = navigator.deviceMemory || 0;
+
+  return {
+    hostname: window.location.hostname,
+    type: "Browser",
+    platform,
+    release: navigator.userAgent,
+    arch: browserPlatform,
+    uptime: Math.floor(performance.now() / 1000),
+    memory: {
+      total: browserMemoryGb > 0 ? browserMemoryGb * 1024 * 1024 * 1024 : totalHeap,
+      free: browserMemoryGb > 0 ? Math.max(browserMemoryGb * 1024 * 1024 * 1024 - usedHeap, 0) : Math.max(totalHeap - usedHeap, 0),
+      used: usedHeap,
+      usedPercent,
+    },
+    cpu: {
+      cores: browserCpuCount,
+      model: "Browser runtime",
+      speed: 0,
+      loadAverage: [0, 0, 0],
+      usagePercent: 0,
+    },
+    network: [
+      {
+        name: "Browser network",
+        addresses: [
+          {
+            address: connection?.effectiveType ?? "unknown",
+            family: "Browser",
+            mac: "",
+            internal: false,
+          },
+        ],
+      },
+    ],
+    throughput: [],
+  };
+}
+
 const fetchOsMetrics = async () => {
   const response = await fetch("/api/os");
   if (!response.ok) {
@@ -59,13 +129,21 @@ function Index() {
   const [cpuThreshold, setCpuThreshold] = useState(80);
   const [memThreshold, setMemThreshold] = useState(85);
   const [netThreshold, setNetThreshold] = useState(1024);
+  const [browserMetrics, setBrowserMetrics] = useState<OsMetric | null>(null);
+
+  const isLocalHost = typeof window !== "undefined" && ["localhost", "127.0.0.1"].includes(window.location.hostname);
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["osMetrics"],
     queryFn: fetchOsMetrics,
-    refetchInterval: 2000,
+    enabled: isLocalHost,
+    refetchInterval: isLocalHost ? 2000 : false,
     staleTime: 1000,
   });
+
+  useEffect(() => {
+    setBrowserMetrics(getBrowserMetrics());
+  }, []);
 
   useEffect(() => {
     if (!data) return;
@@ -93,13 +171,14 @@ function Index() {
     return `${hrs}h ${mins}m ${secs}s`;
   };
 
+  const liveData = isLocalHost ? data : browserMetrics;
   const totalThroughput = useMemo(
-    () => data?.throughput.reduce((sum, item) => sum + item.rxKb + item.txKb, 0) ?? 0,
-    [data],
+    () => liveData?.throughput.reduce((sum, item) => sum + item.rxKb + item.txKb, 0) ?? 0,
+    [liveData],
   );
 
-  const cpuWarning = data?.cpu.usagePercent != null && data.cpu.usagePercent > cpuThreshold;
-  const memWarning = data?.memory.usedPercent != null && data.memory.usedPercent > memThreshold;
+  const cpuWarning = liveData?.cpu.usagePercent != null && liveData.cpu.usagePercent > cpuThreshold;
+  const memWarning = liveData?.memory.usedPercent != null && liveData.memory.usedPercent > memThreshold;
   const netWarning = totalThroughput > netThreshold;
 
   return (
@@ -116,6 +195,11 @@ function Index() {
               <p className="mt-2 text-sm text-slate-400 sm:text-base">
                 Real-time CPU, memory, and network throughput with alert thresholds.
               </p>
+              <p className="mt-2 text-xs text-slate-500 sm:text-sm">
+                {isLocalHost
+                  ? "This view is reading the local machine metrics from the app runtime."
+                  : "This deployed page is reading browser/device information from your current device rather than the Vercel server runtime."}
+              </p>
             </div>
             <button
               onClick={() => void refetch()}
@@ -130,17 +214,17 @@ function Index() {
               <div className="grid gap-6 sm:grid-cols-2">
                 <MetricCard
                   title="RAM Usage"
-                  value={isLoading ? "--" : `${data?.memory.usedPercent.toFixed(1)} %`}
-                  detail={isLoading ? "Loading..." : `${formatBytes(data?.memory.used ?? 0)} used of ${formatBytes(data?.memory.total ?? 0)}`}
+                  value={isLoading ? "--" : `${liveData?.memory.usedPercent.toFixed(1)} %`}
+                  detail={isLoading ? "Loading..." : `${formatBytes(liveData?.memory.used ?? 0)} used of ${formatBytes(liveData?.memory.total ?? 0)}`}
                   warning={memWarning}
                 />
                 <MetricCard
                   title="CPU Usage"
-                  value={isLoading ? "--" : `${data?.cpu.usagePercent.toFixed(1)} %`}
-                  detail={isLoading ? "Loading..." : `${data?.cpu.model} • ${data?.cpu.cores} cores`}
+                  value={isLoading ? "--" : `${liveData?.cpu.usagePercent.toFixed(1)} %`}
+                  detail={isLoading ? "Loading..." : `${liveData?.cpu.model} • ${liveData?.cpu.cores} cores`}
                   warning={cpuWarning}
                 />
-                <MetricCard title="Uptime" value={isLoading ? "--" : formatUptime(data?.uptime ?? 0)} detail="Time since last reboot" />
+                <MetricCard title="Uptime" value={isLoading ? "--" : formatUptime(liveData?.uptime ?? 0)} detail="Time since last reboot" />
                 <MetricCard
                   title="Network Throughput"
                   value={isLoading ? "--" : `${totalThroughput.toFixed(1)} KB/s`}
@@ -170,12 +254,12 @@ function Index() {
               <div className="rounded-3xl border border-slate-800 bg-slate-950/80 p-6">
                 <h2 className="text-lg font-semibold">Live status</h2>
                 <div className="mt-4 space-y-4 text-sm text-slate-300">
-                  <StatusRow name="Host" value={isLoading ? "--" : data?.hostname ?? "--"} />
-                  <StatusRow name="OS" value={isLoading ? "--" : data?.platform ?? "--"} />
-                  <StatusRow name="Release" value={isLoading ? "--" : data?.release ?? "--"} />
-                  <StatusRow name="Arch" value={isLoading ? "--" : data?.arch ?? "--"} />
-                  <StatusRow name="CPU" value={isLoading ? "--" : `${data?.cpu.cores ?? 0} cores • ${data?.cpu.speed ?? 0} MHz`} />
-                  <StatusRow name="Memory" value={isLoading ? "--" : `${formatBytes(data?.memory.used ?? 0)} / ${formatBytes(data?.memory.total ?? 0)}`} />
+                  <StatusRow name="Host" value={isLoading ? "--" : liveData?.hostname ?? "--"} />
+                  <StatusRow name="OS" value={isLoading ? "--" : liveData?.platform ?? "--"} />
+                  <StatusRow name="Release" value={isLoading ? "--" : liveData?.release ?? "--"} />
+                  <StatusRow name="Arch" value={isLoading ? "--" : liveData?.arch ?? "--"} />
+                  <StatusRow name="CPU" value={isLoading ? "--" : `${liveData?.cpu.cores ?? 0} cores • ${liveData?.cpu.speed ?? 0} MHz`} />
+                  <StatusRow name="Memory" value={isLoading ? "--" : `${formatBytes(liveData?.memory.used ?? 0)} / ${formatBytes(liveData?.memory.total ?? 0)}`} />
                   <StatusRow name="Throughput" value={isLoading ? "--" : `${totalThroughput.toFixed(1)} KB/s`} />
                 </div>
               </div>
