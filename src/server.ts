@@ -61,17 +61,6 @@ async function getOsMetrics() {
     release: os.release(),
     arch: os.arch(),
     uptime: os.uptime(),
-    totalCores: cpus.length,
-    cpuModel: cpus[0]?.model ?? "Unknown",
-    cpuSpeed: cpus[0]?.speed ?? 0,
-    cpuLoadAverage: os.loadavg(),
-    memoryAvailable: freeMem,
-    memoryUsed: usedMem,
-    memoryTotal: totalMem,
-    memoryUsedPercent: totalMem > 0 ? (usedMem / totalMem) * 100 : 0,
-    loadCurrent: load.currentLoad,
-    networkInterfaces,
-    throughput,
     memory: {
       total: totalMem,
       free: freeMem,
@@ -131,14 +120,28 @@ export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
     try {
       const url = new URL(request.url);
-      if (url.pathname === "/api/os" && request.method === "GET") {
-        return new Response(JSON.stringify(await getOsMetrics()), {
-          status: 200,
-          headers: {
-            "content-type": "application/json; charset=utf-8",
-            "cache-control": "no-store",
-          },
-        });
+      if (url.pathname === "/api/os") {
+        if (request.method === "OPTIONS") {
+          return new Response(null, {
+            status: 204,
+            headers: {
+              "access-control-allow-origin": "*",
+              "access-control-allow-methods": "GET, OPTIONS",
+              "access-control-allow-headers": "content-type",
+            },
+          });
+        }
+        if (request.method === "GET") {
+          return new Response(JSON.stringify(await getOsMetrics()), {
+            status: 200,
+            headers: {
+              "content-type": "application/json; charset=utf-8",
+              "cache-control": "no-store",
+              "access-control-allow-origin": "*",
+              "access-control-allow-methods": "GET, OPTIONS",
+            },
+          });
+        }
       }
 
       const handler = await getServerEntry();
